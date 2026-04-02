@@ -138,6 +138,12 @@ fail. To check if this is the case, set `RENDER_BROWSER=1` in the `.env`, and ma
 the script. Remember to revert this back in case you have an active `cron`, as otherwise browser
 windows will open out of nowhere all the time!
 
+### Missing Driver
+
+Selenium may raise a `selenium.common.exceptions.NoSuchDriverException` if its unable to find the
+firefox binary in the default location. In this case, add the `FIREFOX_BINARY_PATH` environment
+variable to the `.env` file.
+
 ### Invalid Host Error
 
 You may see an error such as:

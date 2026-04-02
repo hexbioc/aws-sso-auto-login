@@ -18,12 +18,16 @@ class SeleniumExecutor:
         self,
         *,
         headless=True,
+        driver_path=None,
         explicit_wait_seconds=EXPLICIT_WAIT_SECONDS,
         interaction_delay_seconds=INTERACTION_DELAY_SECONDS,
     ):
         options = Options()
         if headless:
             options.add_argument("--headless")
+
+        if driver_path:
+            options.binary_location = driver_path
 
         self.driver = webdriver.Firefox(options=options)
         self.explicit_wait_seconds = explicit_wait_seconds
@@ -58,7 +62,9 @@ class SeleniumExecutor:
         log: str | None = None,
     ):
         # Click element
-        self.driver.find_element(by, selector).click()
+        WebDriverWait(self.driver, self.explicit_wait_seconds).until(
+            EC.element_to_be_clickable((by, selector)),
+        ).click()
 
         if log is not None:
             logger.info(log)
@@ -74,7 +80,9 @@ class SeleniumExecutor:
         *,
         log: str | None = None,
     ):
-        self.driver.find_element(by, selector).send_keys(text)
+        WebDriverWait(self.driver, self.explicit_wait_seconds).until(
+            EC.element_to_be_clickable((by, selector)),
+        ).send_keys(text)
 
         if log is not None:
             logger.info(log)

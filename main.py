@@ -23,11 +23,15 @@ AWS_BINARY = os.getenv("AWS_BINARY")
 AWS_STS_PROFILE = os.getenv("AWS_STS_PROFILE")
 AWS_SSO_SESSION = os.getenv("AWS_SSO_SESSION")
 
+AD_CHECK_URL = os.getenv("AD_CHECK_URL", "https://google.com")
+FIREFOX_BINARY_PATH = os.getenv("FIREFOX_BINARY_PATH")
+
 AWS_SSO_CACHE_PATH = os.path.expanduser("~/.aws/sso/cache")
 TOKEN_EXPIRY_THRESHOLD = timedelta(minutes=10)
 
 AD_URL_PREFIX = "https://login.microsoftonline.com"
 
+SSO_CHECK_TIMEOUT_SECONDS = 10
 
 @function_profiler.profile
 def get_token_expiry() -> datetime:
@@ -55,7 +59,7 @@ def get_token_expiry() -> datetime:
 
 def get_executor():
     headless = os.environ.get("RENDER_BROWSER") != "1"
-    executor = SeleniumExecutor(headless=headless)
+    executor = SeleniumExecutor(headless=headless, driver_path=FIREFOX_BINARY_PATH)
 
     return executor
 
@@ -63,12 +67,11 @@ def get_executor():
 def microsoft_active_directory_check():
     logger.info("Checking if Microsoft AD login is required")
 
-    url = os.getenv("AD_CHECK_URL", "https://google.com")
     executor = None
 
     try:
         executor = get_executor()
-        executor.open(url)
+        executor.open(AD_CHECK_URL)
 
         time.sleep(2)
 
@@ -91,9 +94,9 @@ def microsoft_active_directory_check():
 def microsoft_login(executor: SeleniumExecutor):
     # Read secrets
     logger.info("Reading secrets from environment")
-    email = os.environ.get("EMAIL")
-    password = os.environ.get("PASSWORD")
-    totp_secret = os.environ.get("TOTP_SECRET")
+    email = os.environ.get("EMAIL", "")
+    password = os.environ.get("PASSWORD", "")
+    totp_secret = os.environ.get("TOTP_SECRET", "")
 
     executor.wait_for_element(
         By.NAME,
@@ -136,18 +139,9 @@ def microsoft_login(executor: SeleniumExecutor):
         "otc",
         TOTP(totp_secret).now(),
     ).click(
-        By.NAME,
-        "rememberMFA",
-    ).click(
         By.CLASS_NAME,
         "button_primary",
         log="Entered TOTP",
-    ).wait_for_element(
-        By.XPATH,
-        '//*[contains(text(),"Stay signed in?")]',
-    ).click(
-        By.CLASS_NAME,
-        "button_primary",
     )
 
     return executor
@@ -186,6 +180,7 @@ def login():
     stdoutlines = []
 
     url = None
+    start_time = time.time()
     while True:
         raw_line = process.stdout.readline()
         stdoutlines.append(raw_line)
@@ -194,9 +189,12 @@ def login():
             raise Exception("AWS SSO login command failed")
 
         line = raw_line.decode().strip()
-        if re.match(r".*user_code=", line):
+        if re.match(r"^https://oidc\.[^\.]+\.amazonaws\.com/authorize", line):
             url = line
             break
+
+        if (time.time() - start_time) > SSO_CHECK_TIMEOUT_SECONDS:
+            raise Exception('AWS SSO login command timed-out')
 
     # Get a firefox driver
     executor = get_executor()
@@ -208,17 +206,7 @@ def login():
     try:
         microsoft_login(executor)
 
-        executor.wait_for_element(
-            By.ID,
-            "user-code",
-        ).click(
-            By.ID,
-            "cli_verification_btn",
-            log="Confirmed code",
-        ).wait_for_element(
-            By.XPATH,
-            '//*[@data-testid="allow-access-button"]',
-        ).click(
+        executor.click(
             By.XPATH,
             '//*[@data-testid="allow-access-button"]',
             log="Allowed AWS OAuth",
@@ -227,11 +215,12 @@ def login():
         logger.info("Login successful")
     except Exception:
         logger.exception("Failure while attempting SSO login")
+    finally:
+        # Release browser resources
+        executor.quit()
 
         # Terminate the AWS process, in case it is still running
         process.terminate()
-    finally:
-        executor.quit()
 
 
 if __name__ == "__main__":
