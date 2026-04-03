@@ -19,9 +19,10 @@ from datetime import datetime, timedelta, UTC
 
 load_dotenv()
 
-AWS_BINARY = os.getenv("AWS_BINARY")
-AWS_STS_PROFILE = os.getenv("AWS_STS_PROFILE")
-AWS_SSO_SESSION = os.getenv("AWS_SSO_SESSION")
+# TODO: Add proper config validation
+AWS_BINARY = os.getenv("AWS_BINARY", "")
+AWS_STS_PROFILE = os.getenv("AWS_STS_PROFILE", "")
+AWS_SSO_SESSION = os.getenv("AWS_SSO_SESSION", "")
 
 AD_CHECK_URL = os.getenv("AD_CHECK_URL", "https://google.com")
 FIREFOX_BINARY_PATH = os.getenv("FIREFOX_BINARY_PATH")
@@ -120,16 +121,25 @@ def microsoft_login(executor: SeleniumExecutor):
         By.CLASS_NAME,
         "button_primary",
         log="Entered password",
-    ).wait_for_element(By.ID, "signInAnotherWay").click(
-        By.ID,
-        "signInAnotherWay",
-        log="Requested alternate sign-in",
-    ).wait_for_element(
-        By.XPATH,
-        '//*[@data-value="PhoneAppOTP"]',
-    ).click(
-        By.XPATH,
-        '//*[@data-value="PhoneAppOTP"]',
+    )
+
+    # Sometimes, the app OTP can fail, so we check for both elements
+    # Target is to click on the TOTP option
+    signin_another_way_opt = (By.ID, "signInAnotherWay")
+    totp_opt = (By.XPATH, '//*[@data-value="PhoneAppOTP"]')
+    
+    executor.wait_for_any_of([signin_another_way_opt, totp_opt])
+
+    if executor.element_exists(*signin_another_way_opt):
+        executor.click(
+            *signin_another_way_opt,
+            log="Requested alternate sign-in",
+        ).wait_for_element(
+            *totp_opt,
+        )
+
+    executor.click(
+        *totp_opt,
         log="Selected TOTP sign-in method",
     ).wait_for_element(
         By.XPATH,
@@ -155,9 +165,9 @@ def login():
     # Check token expiry timestamp
     token_expiry_timestamp = get_token_expiry()
 
-    if token_expiry_timestamp - datetime.now(UTC) > TOKEN_EXPIRY_THRESHOLD:
-        logger.info("Access token is still valid, skipping login")
-        return
+    # if token_expiry_timestamp - datetime.now(UTC) > TOKEN_EXPIRY_THRESHOLD:
+    #     logger.info("Access token is still valid, skipping login")
+    #     return
 
     if token_expiry_timestamp < datetime.now(UTC):
         logger.warning("Access token has expired, logging in again")
@@ -182,7 +192,7 @@ def login():
     url = None
     start_time = time.time()
     while True:
-        raw_line = process.stdout.readline()
+        raw_line = process.stdout.readline() # pyright: ignore[reportOptionalMemberAccess]
         stdoutlines.append(raw_line)
 
         if not raw_line:
@@ -206,13 +216,19 @@ def login():
     try:
         microsoft_login(executor)
 
-        executor.click(
-            By.XPATH,
-            '//*[@data-testid="allow-access-button"]',
-            log="Allowed AWS OAuth",
-        )
+        # We either get a success message, or a button to allow access
+        success_message_sel = (By.ID, 'success-message')
+        allow_btn_sel = (By.XPATH, '//*[@data-testid="allow-access-button"]')
 
-        logger.info("Login successful")
+        executor.wait_for_any_of([success_message_sel, allow_btn_sel])
+
+        if executor.element_exists(*allow_btn_sel):
+            executor.click(
+                *allow_btn_sel,
+                log="Allowed AWS OAuth",
+            )
+
+        logger.info("SSO login successful")
     except Exception:
         logger.exception("Failure while attempting SSO login")
     finally:
@@ -227,7 +243,7 @@ if __name__ == "__main__":
     mode = "aws-login" if len(sys.argv) < 2 else sys.argv[1]
 
     if mode == "totp":
-        print(TOTP(os.environ.get("TOTP_SECRET")).now())
+        print(TOTP(os.environ.get("TOTP_SECRET", "")).now())
         sys.exit()
 
     elif mode == "aws-login":
