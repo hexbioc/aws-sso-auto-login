@@ -165,9 +165,9 @@ def login():
     # Check token expiry timestamp
     token_expiry_timestamp = get_token_expiry()
 
-    # if token_expiry_timestamp - datetime.now(UTC) > TOKEN_EXPIRY_THRESHOLD:
-    #     logger.info("Access token is still valid, skipping login")
-    #     return
+    if token_expiry_timestamp - datetime.now(UTC) > TOKEN_EXPIRY_THRESHOLD:
+        logger.info("Access token is still valid, skipping login")
+        return
 
     if token_expiry_timestamp < datetime.now(UTC):
         logger.warning("Access token has expired, logging in again")
