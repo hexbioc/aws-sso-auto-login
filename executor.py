@@ -38,7 +38,7 @@ class SeleniumExecutor:
         self.driver.get(url)
 
         return self
-    
+
     @function_profiler.profile
     def element_exists(self, by: str, selector: str):
         try:
@@ -46,20 +46,15 @@ class SeleniumExecutor:
             return True
         except:
             return False
-    
+
     @function_profiler.profile
     def wait_for_any_of(self, selectors: list[tuple[str, str]]):
         try:
             WebDriverWait(self.driver, self.explicit_wait_seconds).until(
-                EC.any_of(*[
-                    EC.presence_of_element_located(sel)
-                    for sel in selectors
-                ])
+                EC.any_of(*[EC.presence_of_element_located(sel) for sel in selectors])
             )
         except Exception:
-            logger.exception(
-                f"Exception while waiting any of selectors <{selectors}>"
-            )
+            logger.exception(f"Exception while waiting any of selectors <{selectors}>")
             raise
 
         time.sleep(self.interaction_delay_seconds)
@@ -76,6 +71,24 @@ class SeleniumExecutor:
             logger.exception(
                 f"Exception while waiting for element selector <{selector}> by <{by}>"
             )
+            raise
+
+        time.sleep(self.interaction_delay_seconds)
+
+        return self
+
+    @function_profiler.profile
+    def wait_for_url_match(
+        self,
+        pattern: str,
+        wait_duration_seconds=EXPLICIT_WAIT_SECONDS,
+    ):
+        try:
+            WebDriverWait(self.driver, wait_duration_seconds).until(
+                EC.url_matches(pattern)
+            )
+        except Exception:
+            logger.exception(f"Exception while waiting URL match pattern <{pattern}>")
             raise
 
         time.sleep(self.interaction_delay_seconds)

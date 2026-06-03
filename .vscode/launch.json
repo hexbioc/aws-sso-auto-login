@@ -9,6 +9,9 @@
             "type": "debugpy",
             "request": "launch",
             "program": "main.py",
+            "args": [
+                "ivanti-connect"
+            ],
             "console": "integratedTerminal"
         }
     ]

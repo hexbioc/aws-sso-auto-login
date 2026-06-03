@@ -34,6 +34,10 @@ AD_URL_PREFIX = "https://login.microsoftonline.com"
 
 SSO_CHECK_TIMEOUT_SECONDS = 10
 
+IVANTI_HOST_CHECK_RETRIES = 3
+IVANTI_HOST_REDIRECTION_WAIT_TIME_SECONDS = 10
+
+
 @function_profiler.profile
 def get_token_expiry() -> datetime:
     fallback_timestamp = datetime.now(UTC) - timedelta(days=1)
@@ -127,7 +131,7 @@ def microsoft_login(executor: SeleniumExecutor):
     # Target is to click on the TOTP option
     signin_another_way_opt = (By.ID, "signInAnotherWay")
     totp_opt = (By.XPATH, '//*[@data-value="PhoneAppOTP"]')
-    
+
     executor.wait_for_any_of([signin_another_way_opt, totp_opt])
 
     if executor.element_exists(*signin_another_way_opt):
@@ -153,6 +157,68 @@ def microsoft_login(executor: SeleniumExecutor):
         "button_primary",
         log="Entered TOTP",
     )
+
+    return executor
+
+
+def write_ivanti_cookie():
+    logger.info("Beginning automated Ivanti cookie generation")
+
+    url = os.getenv("IVANTI_HOST", "")
+
+    if not url:
+        raise Exception("'IVANTI_HOST' env variable is not set")
+
+    # Get a firefox driver
+    executor = get_executor()
+
+    try:
+        # Open the Ivanti host page, it should redirect to the AD login page automatically
+        executor.open(url)
+
+        # Wait for the AD login page
+        executor.wait_for_url_match(rf"^{AD_URL_PREFIX}")
+
+        # Complete the login
+        microsoft_login(executor)
+
+        # Wait for redirection to Ivanti host page, where a 'host check' takes place
+        # We need to wait on this page for sometime, before the page auto-redirects to another
+        executor.wait_for_url_match(rf"^{url}/dana-na/auth/url_default/welcome")
+
+        retry_count = 0
+        while retry_count < IVANTI_HOST_CHECK_RETRIES:
+            retry_count += 1
+
+            # Click on the 'click here' link
+            click_here_btn_sel = (By.XPATH, '//*[contains(text(),"click here")]')
+            if executor.element_exists(*click_here_btn_sel):
+                executor.click(*click_here_btn_sel)
+
+            # Wait for final redirection
+            try:
+                executor.wait_for_url_match(
+                    rf"^{url}/dana/user",
+                    IVANTI_HOST_REDIRECTION_WAIT_TIME_SECONDS,
+                )
+                break
+            except Exception:
+                logger.warning(
+                    "Timed out while waiting for Ivanti host check completion"
+                )
+                if retry_count >= IVANTI_HOST_CHECK_RETRIES:
+                    raise Exception("Ivanti failed host check")
+
+        # Write cookie to file
+        dsid_cookie = executor.driver.get_cookie("DSID")
+        if not dsid_cookie:
+            raise Exception("No DSID cookie found")
+
+        with open("/tmp/.ivanti-cookie", "w") as f:
+            logger.info(f"Found cookie: {dsid_cookie['value']}")
+            f.write(dsid_cookie["value"])
+    finally:
+        executor.quit()
 
     return executor
 
@@ -192,7 +258,7 @@ def login():
     url = None
     start_time = time.time()
     while True:
-        raw_line = process.stdout.readline() # pyright: ignore[reportOptionalMemberAccess]
+        raw_line = process.stdout.readline()  # pyright: ignore[reportOptionalMemberAccess]
         stdoutlines.append(raw_line)
 
         if not raw_line:
@@ -204,7 +270,7 @@ def login():
             break
 
         if (time.time() - start_time) > SSO_CHECK_TIMEOUT_SECONDS:
-            raise Exception('AWS SSO login command timed-out')
+            raise Exception("AWS SSO login command timed-out")
 
     # Get a firefox driver
     executor = get_executor()
@@ -217,7 +283,7 @@ def login():
         microsoft_login(executor)
 
         # We either get a success message, or a button to allow access
-        success_message_sel = (By.ID, 'success-message')
+        success_message_sel = (By.ID, "success-message")
         allow_btn_sel = (By.XPATH, '//*[@data-testid="allow-access-button"]')
 
         executor.wait_for_any_of([success_message_sel, allow_btn_sel])
@@ -251,5 +317,8 @@ if __name__ == "__main__":
 
     elif mode == "ad-check":
         microsoft_active_directory_check()
+
+    elif mode == "ivanti-connect":
+        write_ivanti_cookie()
 
     function_profiler.write_csv("profiled.csv")
