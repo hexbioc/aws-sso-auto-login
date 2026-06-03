@@ -83,7 +83,7 @@ can be re-used across profiles with the `sso_session` configuration key.
 Add a `cron` entry according to the output of this command:
 
 ```sh
-printf "\n*/5 * * * *                $(pwd)/run.sh\n\n"
+printf "\n*/5 * * * *                $(pwd)/scripts/run.sh\n\n"
 ```
 
 You can update the `cron` expression as required (above runs the script once every 15 minutes).
@@ -110,7 +110,7 @@ automates that process.
 To add this script to `cron`, include the output of this command in your `crontab`:
 
 ```sh
-printf "\n*/10 * * * *                $(pwd)/run-ad-check.sh\n\n"
+printf "\n*/10 * * * *                $(pwd)/scripts/run-ad-check.sh\n\n"
 ```
 
 ## Troubleshooting

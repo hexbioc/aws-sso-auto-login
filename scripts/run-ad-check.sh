@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Switch to project directory
-cd "$(dirname $0)"
+cd "$(dirname $0)/../"
 
 # Run the script while saving the logs of the current run
 venv/bin/python main.py ad-check >>~/.cache/microsoft-ad-check.log 2>&1
